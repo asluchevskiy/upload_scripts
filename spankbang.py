@@ -1,32 +1,26 @@
 #!/usr/bin/python
 # -*- coding= utf-8 -*-
-
-
-#from lib.library import *
-#from lib.orientation import *
-#from lib.antigate2 import Antigate
-#from lib.custommail import CustomMail
 from requests.exceptions import ConnectionError
-from requests.packages.urllib3.exceptions import InsecureRequestWarning, SNIMissingWarning, InsecurePlatformWarning
+from urllib3.exceptions import InsecureRequestWarning, SNIMissingWarning, InsecurePlatformWarning
 from urllib.parse import unquote, quote, urljoin, urlparse
-import logging as log
+# import logging as log
+import logging
 import random
 import re
 import requests
 import string
 import sys,os
 import time
+import http.client
 
 
 basedir = os.path.dirname(__file__)
 name = "spankbang"
 #### LOG SETTINGS
-import logging
-info_log =  name + '.log'
+info_log = name + '.log'
 info_log = os.path.join(basedir, info_log)
-logging.basicConfig()
-formatter = logging.Formatter("[%(asctime)s] %(levelname)s ==> %(message)s",
-                              "%d-%m-%Y %H:%M:%S")
+# logging.basicConfig()
+formatter = logging.Formatter("[%(asctime)s] %(levelname)s ==> %(message)s", "%d-%m-%Y %H:%M:%S")
 log = logging.getLogger()
 log.setLevel(logging.DEBUG)
 req_log = logging.getLogger('requests.packages.urllib3')
@@ -41,6 +35,7 @@ i_handler.setLevel(logging.INFO)
 i_handler.setFormatter(formatter)
 log.addHandler(i_handler)
 
+
 def handle_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
@@ -50,10 +45,10 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 sys.excepthook = handle_exception
 ########################################
 
+
 ua_rand = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.116 Safari/537.36'
 data_sitekey = '6LcoxXsUAAAAAGEox9WUa_lOTuPnOr6WxUH57ryQ'
 site = 'https://spankbang.com'
-
 
 
 def upload_video(info,_domain):
@@ -62,16 +57,17 @@ def upload_video(info,_domain):
     dct['title'] = info['title']
     dct['orientation'] = '0'
     #cat = '{}'.format(make_category(info['tags'], spankbang_category))
-    cat = '2,21'
-    category = cat.split(',')
-    dct['identifier'] = str(random.randint(100000000,900000000)) + '-' + re.sub('[\W]','',dct['filename'])
+    # cat = '2, 21'
+    cat = '1, 41'
+    categories = cat.split(',')
+    # dct['identifier'] = str(random.randint(100000000,900000000)) + '-' + re.sub('[\W]','',dct['filename'])
 
     log.info("{}: filename: {}".format(name, dct['filename']))
 
-    log.info('{}: identifier: {}'.format(name, dct['identifier']))
+    # log.info('{}: identifier: {}'.format(name, dct['identifier']))
     log.info("{}: title: {}".format(name, dct['title']))
     log.info("{}: tags: {}".format(name, info['tags']))
-    log.info("{}: category: {}".format(name, category))
+    log.info("{}: category: {}".format(name, categories))
 
 
     s.headers.clear()
@@ -83,7 +79,6 @@ def upload_video(info,_domain):
     s.headers['Referer'] = _domain
 
     resp = s.get(url, verify=False)
-
 
     dct['video_data'] = get_file_data(info['video'])
     dct['filesize'] = len(dct['video_data'])
@@ -125,12 +120,13 @@ def upload_video(info,_domain):
     else:
         return True
 
-
-    part_count = int(dct['filesize'] / 1048576) + 1
+    # part_count = int(dct['filesize'] / 1048576) + 1
+    part_count = int(dct['filesize'] / 1048576)
     dct['part_count'] = part_count
     log.info("{}: part counts: {}".format(name, part_count))
 
     dct['resumableFilename'] = quote(dct['filename'])
+    dct['identifier'] = str(dct['filesize']) + '-' + re.sub('[\W]','', dct['filename'])
 
     start_c = 0
     end_c = 1048576
@@ -140,12 +136,14 @@ def upload_video(info,_domain):
 
         n_ = n + 1
 
-        try:
+        # try:
+        if n_ == part_count:
+            part_data = dct['video_data'][start_c:]
+        else:
             part_data = dct['video_data'][start_c:end_c]
-        except:
-            log.info("end_part_data".format(n_, len(part_data)))
-            return True
-
+        # except Exception:
+        #     log.info("end_part_data".format(n_, len(part_data)))
+        #     return True
 
         start_c += 1048576
         end_c += 1048576
@@ -175,82 +173,120 @@ def upload_video(info,_domain):
                                        part_count,
                                        dct['upload_token'])
 
-        data = '''-----------------------------27884144051004
-Content-Disposition: form-data; name="resumableChunkNumber"
+        data = {
+            'resumableChunkNumber': n_,
+            'resumableChunkSize': 1048576,
+            'resumableCurrentChunkSize': dct['resumableCurrentChunkSize'],
+            'resumableTotalSize': dct['filesize'],
+            'resumableType': 'video/mp4',
+            'resumableFilename': dct['resumableFilename'],
+            'resumableTotalChunks': dct['part_count'],
+            'upload_token': dct['upload_token'],
+        }
 
-{n_}
------------------------------27884144051004
-Content-Disposition: form-data; name="resumableChunkSize"
+        files = {
+            'Filedata': dct['part_data']
+        }
 
-1048576
------------------------------27884144051004
-Content-Disposition: form-data; name="resumableCurrentChunkSize"
+        #         data = '''-----------------------------27884144051004
+# Content-Disposition: form-data; name="resumableChunkNumber"
+#
+# {n_}
+# -----------------------------27884144051004
+# Content-Disposition: form-data; name="resumableChunkSize"
+#
+# 1048576
+# -----------------------------27884144051004
+# Content-Disposition: form-data; name="resumableCurrentChunkSize"
+#
+# {resumableCurrentChunkSize}
+# -----------------------------27884144051004
+# Content-Disposition: form-data; name="resumableTotalSize"
+#
+# {filesize}
+# -----------------------------27884144051004
+# Content-Disposition: form-data; name="resumableType"
+#
+# video/mp4
+# -----------------------------27884144051004
+# Content-Disposition: form-data; name="resumableIdentifier"
+#
+# {identifier}
+# -----------------------------27884144051004
+# Content-Disposition: form-data; name="resumableFilename"
+#
+# {resumableFilename}
+# -----------------------------27884144051004
+# Content-Disposition: form-data; name="resumableRelativePath"
+#
+# {resumableFilename}
+# -----------------------------27884144051004
+# Content-Disposition: form-data; name="resumableTotalChunks"
+#
+# {part_count}
+# -----------------------------27884144051004
+# Content-Disposition: form-data; name="upload_token"
+#
+# {upload_token}
+# -----------------------------27884144051004
+# Content-Disposition: form-data; name="file"; filename="{filename}"
+# Content-Type: application/octet-stream
+#
+# {part_data}
+# -----------------------------27884144051004--'''.format(**dct)
+#
+#
+#         s.headers['Content-Type'] = 'multipart/form-data; boundary=---------------------------27884144051004'
+#         s.headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
 
-{resumableCurrentChunkSize}
------------------------------27884144051004
-Content-Disposition: form-data; name="resumableTotalSize"
-
-{filesize}
------------------------------27884144051004
-Content-Disposition: form-data; name="resumableType"
-
-video/mp4
------------------------------27884144051004
-Content-Disposition: form-data; name="resumableIdentifier"
-
-{identifier}
------------------------------27884144051004
-Content-Disposition: form-data; name="resumableFilename"
-
-{resumableFilename}
------------------------------27884144051004
-Content-Disposition: form-data; name="resumableRelativePath"
-
-{resumableFilename}
------------------------------27884144051004
-Content-Disposition: form-data; name="resumableTotalChunks"
-
-{part_count}
------------------------------27884144051004
-Content-Disposition: form-data; name="upload_token"
-
-{upload_token}
------------------------------27884144051004
-Content-Disposition: form-data; name="file"; filename="{filename}"
-Content-Type: application/octet-stream
-
-{part_data}
------------------------------27884144051004--'''.format(**dct)
-
-
-        s.headers['Content-Type'] = 'multipart/form-data; boundary=---------------------------27884144051004'
-        s.headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
         try:
-           resp = s.post(url, data)
+           # resp = s.post(url, data)
+           resp = s.post(url, data=data, files=files)
+           if 'OK' not in resp.text:
+               raise Exception('not OK upload')
         except Exception as e:
            log.error("{}: upload exception: {}".format(name, e))
            return True
 
     log.info('{}: end attach file'.format(name))
 
-
     url = 'https://%s.spankbang.com/resumable_upload_data' % server_num
-    #auto = 'https://%s.spankbang.com/resumable_upload_data_auto' % server_num
+    auto_url = 'https://%s.spankbang.com/resumable_upload_data_auto' % server_num
+
+    s.headers.clear()
+    s.headers['User-Agent'] = ua_rand
+    s.headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
+    # s.headers['sec-fetch-dest'] = 'empty'
+    # s.headers['sec-fetch-mode'] = 'cors'
+    # s.headers['sec-fetch-site'] = 'sec-fetch-site'
+    s.headers['dnt'] = '1'
+    # s.headers['Accept'] = '*/*'
+    s.headers['Origin'] = 'https://ru.spankbang.com'
+    s.headers['Referer'] = 'https://ru.spankbang.com/users/upload'
+    # s.headers['X-Requested-With'] = 'XMLHttpRequest'
+
 
     data = {
-             'auth_token': dct['upload_token'],
+        'auth_token': dct['upload_token'],
+        'name': '',
+        'description': '',
+        'channel': '0',
+        'orientaion': -1
+    }
+
+    resp = s.post(auto_url, data)
+
+    data.update({
+             # 'auth_token': dct['upload_token'],
              'name': dct['title'],
              'description': info['description'],
-             'channel': '0',
+             # 'channel': '0',
              'orientaion': dct['orientation'],
              'tags[]': info['tags'].split(','), # [dct['tag1'], dct['tag2'], dct['tag3']],
-             'category[]': ['2', '21'] #[dct['cat1'], dct['cat2'], dct['cat3']]
-             }
+             'category[]': categories#['1', '41'] #[dct['cat1'], dct['cat2'], dct['cat3']]
+             })
 
-    log.info('{}: post to {} video data: {}'.format(name,url,data))
-
-    s.headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
-    s.headers['X-Requested-With'] = 'XMLHttpRequest'
+    log.info('{}: post to {} video data: {}'.format(name, url, data))
 
     resp = s.post(url, data)
 
@@ -263,9 +299,8 @@ Content-Type: application/octet-stream
             files.write(resp.content)
         return True
 
+
 def login(username,password,_domain):
-
-
     log.info("{}: login to: {}:{}".format(name, username,password))
 
     url = urljoin(_domain, 'users/auth?ajax=1&login=1')
@@ -283,7 +318,7 @@ def login(username,password,_domain):
 
     resp = s.post(url,data)
 
-    if  'OK' in resp.text:
+    if 'OK' in resp.text:
         log.info("{}: login success: {}".format(name,resp.text))
         return _domain
     else:
@@ -292,10 +327,12 @@ def login(username,password,_domain):
             files.write(resp.content)
         exit()
 
+
 def get_file_data(path):
     with open(path, 'rb') as f:
         fdata = f.read()
     return fdata.decode('latin-1')
+
 
 def main():
     global s
@@ -303,12 +340,12 @@ def main():
     s.headers['User-Agent'] = ua_rand
     s.headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
     s.headers['X-Requested-With'] = 'XMLHttpRequest'
-    _d = s.get(site,verify = False)
+    _d = s.get(site, verify=False)
     _domain = _d.url
     log.info('{}: domain: {}'.format(name, _domain))
     username = 'cepic76591'
     password = 's1234567'
-    login(username,password,_domain)
+    login(username, password, _domain)
     info = {}
     info['filename'] = 'test.mp4'
     info['video'] = 'test.mp4'
@@ -316,7 +353,6 @@ def main():
     info['description'] = 'red gym shorts'
     info['tags'] = 'Dirty Talk,Sex,Hot'
     upload_video(info, _domain)
-
 
 
 if __name__ == "__main__":
@@ -329,9 +365,9 @@ if __name__ == "__main__":
         log.info("{}: >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> END".format(name))
     except SystemExit:
         log.info('{}: EXIT'.format(name))
-        if use_proxy:
-            terminate()
-    except:
+        # if use_proxy:
+        #     terminate()
+    except Exception:
         log.exception('{}: GLOBAL ERROR'.format(name))
-        if use_proxy:
-            terminate()
+        # if use_proxy:
+        #     terminate()
