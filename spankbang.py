@@ -185,7 +185,7 @@ def upload_video(info,_domain):
         }
 
         files = {
-            'Filedata': dct['part_data']
+            'file': dct['part_data']
         }
 
         #         data = '''-----------------------------27884144051004
